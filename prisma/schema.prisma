@@ -1,0 +1,298 @@
+// Prisma schema for AI Back-Office Agent (African SMEs)
+// Supports multi-tenant isolation via businessId on all domain entities
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Currency {
+  GHS
+  NGN
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  MTN_MOMO
+  VODAFONE_CASH
+  BANK_TRANSFER
+  CASH
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  UNMATCHED
+}
+
+enum ComplianceEventType {
+  VAT_FILING
+  WHT_FILING
+  PAYROLL
+  OTHER
+}
+
+enum ComplianceEventStatus {
+  UPCOMING
+  DUE
+  COMPLETED
+  MISSED
+}
+
+enum AgentActionType {
+  CREATE_INVOICE
+  RECORD_PAYMENT
+  COMPUTE_TAX
+  PREPARE_PAYROLL
+  SEND_MESSAGE
+  OTHER
+}
+
+model Business {
+  id          String   @id @default(cuid())
+  name        String
+  country     String   @default("GH") // GH or NG
+  currency    Currency @default(GHS)
+  taxId       String?  // GRA TIN or equivalent
+  phone       String?
+  address     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users              User[]
+  customers          Customer[]
+  invoices           Invoice[]
+  payments           Payment[]
+  employees          Employee[]
+  payrollRuns        PayrollRun[]
+  taxRules           TaxRule[]
+  complianceEvents   ComplianceEvent[]
+  agentActions       AgentActionLog[]
+  conversationSessions ConversationSession[]
+}
+
+model User {
+  id         String   @id @default(cuid())
+  businessId String
+  email      String?
+  phone      String?
+  name       String
+  role       String   @default("owner") // owner | accountant | staff
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+}
+
+model Customer {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String
+  phone      String?
+  email      String?
+  address    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  invoices Invoice[]
+
+  @@index([businessId])
+  @@index([businessId, name])
+}
+
+model Invoice {
+  id           String        @id @default(cuid())
+  businessId   String
+  customerId   String
+  invoiceNumber String
+  status       InvoiceStatus @default(DRAFT)
+  currency     Currency      @default(GHS)
+  subtotal     Float
+  vatAmount    Float         @default(0)
+  whtAmount    Float         @default(0)
+  total        Float
+  amountPaid   Float         @default(0)
+  issueDate    DateTime      @default(now())
+  dueDate      DateTime
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  business Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer      @relation(fields: [customerId], references: [id])
+  items    InvoiceItem[]
+  payments Payment[]
+
+  @@unique([businessId, invoiceNumber])
+  @@index([businessId])
+  @@index([businessId, status])
+  @@index([businessId, dueDate])
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Float   @default(1)
+  unitPrice   Float
+  amount      Float
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  businessId    String
+  invoiceId     String?
+  amount        Float
+  currency      Currency      @default(GHS)
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  reference     String?
+  payerName     String?
+  receivedAt    DateTime      @default(now())
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  invoice  Invoice? @relation(fields: [invoiceId], references: [id])
+
+  @@index([businessId])
+  @@index([businessId, receivedAt])
+  @@index([invoiceId])
+}
+
+model Employee {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String
+  role       String?
+  salary     Float    // monthly gross salary
+  phone      String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payrollItems PayrollItem[]
+
+  @@index([businessId])
+}
+
+model PayrollRun {
+  id         String   @id @default(cuid())
+  businessId String
+  month      Int      // 1-12
+  year       Int
+  totalGross Float
+  totalNet   Float
+  totalDeductions Float @default(0)
+  status     String   @default("draft") // draft | finalized
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  items    PayrollItem[]
+
+  @@unique([businessId, month, year])
+  @@index([businessId])
+}
+
+model PayrollItem {
+  id           String @id @default(cuid())
+  payrollRunId String
+  employeeId   String
+  grossPay     Float
+  ssnitDeduction Float @default(0)
+  taxDeduction Float   @default(0)
+  netPay       Float
+
+  payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employee   Employee   @relation(fields: [employeeId], references: [id])
+
+  @@index([payrollRunId])
+}
+
+model TaxRule {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String   // e.g. "Standard VAT", "WHT Services"
+  vatRate    Float    @default(0.15) // Ghana standard VAT 15%
+  whtRate    Float    @default(0)    // Withholding tax rate
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+}
+
+model ComplianceEvent {
+  id          String                @id @default(cuid())
+  businessId  String
+  type        ComplianceEventType
+  title       String
+  dueDate     DateTime
+  status      ComplianceEventStatus @default(UPCOMING)
+  description String?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([businessId, dueDate])
+}
+
+model AgentActionLog {
+  id         String          @id @default(cuid())
+  businessId String
+  actionType AgentActionType
+  toolName   String
+  input      String          // JSON string
+  output     String?         // JSON string
+  success    Boolean         @default(true)
+  channel    String          @default("web") // web | whatsapp
+  createdAt  DateTime        @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([businessId, createdAt])
+}
+
+model ConversationSession {
+  id         String   @id @default(cuid())
+  businessId String
+  channel    String   @default("web") // web | whatsapp
+  phone      String?  // for WhatsApp sessions
+  messages   String   @default("[]") // JSON array of {role, content}
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([phone])
+}
