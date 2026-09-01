@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { hashPassword } from "../lib/auth/password";
 
 const prisma = new PrismaClient();
 
@@ -31,6 +32,8 @@ async function main() {
     },
   });
 
+  const demoPassword = await hashPassword("DemoPass123!");
+
   await prisma.user.create({
     data: {
       businessId: business.id,
@@ -38,6 +41,7 @@ async function main() {
       email: "kofi@kofidesigns.gh",
       phone: "+233241234567",
       role: "owner",
+      passwordHash: demoPassword,
     },
   });
 
@@ -204,6 +208,7 @@ async function main() {
   console.log(`✅ Seeded business: ${business.name} (${business.id})`);
   console.log(`   Invoices: INV-001 (unpaid), INV-002 (partial), INV-003 (paid)`);
   console.log(`   Set DEFAULT_BUSINESS_ID=${business.id} in .env`);
+  console.log(`   Demo login: +233241234567 / DemoPass123!`);
 }
 
 main()

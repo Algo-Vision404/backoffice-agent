@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runAgent } from "@/agents/orchestrator";
-import { getTenant } from "@/lib/tenant";
+import { getWebhookTenant } from "@/lib/auth/session";
+import { verifyWhatsAppSignature } from "@/lib/auth/whatsapp";
 import {
   parseWhatsAppWebhook,
   sendWhatsAppMessage,
 } from "@/integrations/whatsapp/client";
 import prisma from "@/lib/db";
 
-/**
- * GET /api/whatsapp/webhook — Meta webhook verification
- */
 export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams;
   const mode = searchParams.get("hub.mode");
@@ -23,22 +21,24 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 }
 
-/**
- * POST /api/whatsapp/webhook — Incoming WhatsApp messages
- * Routes to the same agent orchestrator as web chat.
- */
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const rawBody = await req.text();
+    const signature = req.headers.get("x-hub-signature-256");
+
+    if (!verifyWhatsAppSignature(rawBody, signature)) {
+      return NextResponse.json({ error: "Invalid signature" }, { status: 403 });
+    }
+
+    const body = JSON.parse(rawBody);
     const parsed = parseWhatsAppWebhook(body);
 
     if (!parsed) {
       return NextResponse.json({ status: "ignored" });
     }
 
-    const tenant = await getTenant();
+    const tenant = await getWebhookTenant();
 
-    // Find or create WhatsApp session by phone
     let session = await prisma.conversationSession.findFirst({
       where: { businessId: tenant.businessId, phone: parsed.from, channel: "whatsapp" },
       orderBy: { updatedAt: "desc" },
@@ -51,7 +51,6 @@ export async function POST(req: NextRequest) {
       tenant,
     });
 
-    // Persist phone on session
     if (response.sessionId) {
       await prisma.conversationSession.update({
         where: { id: response.sessionId },
@@ -59,7 +58,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Reply via WhatsApp
     await sendWhatsAppMessage({ to: parsed.from, body: response.reply });
 
     return NextResponse.json({ status: "ok", toolActions: response.toolActions });

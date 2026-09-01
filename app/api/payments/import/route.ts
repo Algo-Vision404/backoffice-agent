@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
-import { getTenant } from "@/lib/tenant";
+import { getTenant, assertTenantAccess } from "@/lib/tenant";
 import { parseBankCsv, matchPaymentToInvoice } from "@/lib/import/bank-csv";
 
 export async function POST(req: NextRequest) {
@@ -18,9 +18,25 @@ export async function POST(req: NextRequest) {
 
   let matched = 0;
   let unmatched = 0;
+  let skipped = 0;
   const results = [];
 
   for (const row of rows) {
+    const existing = await prisma.payment.findFirst({
+      where: {
+        businessId: tenant.businessId,
+        reference: row.reference ?? undefined,
+        amount: row.amount,
+        receivedAt: row.date,
+      },
+    });
+
+    if (existing) {
+      skipped++;
+      results.push({ amount: row.amount, matched: !!existing.invoiceId, reference: row.reference, skipped: true });
+      continue;
+    }
+
     const invoiceId = await matchPaymentToInvoice(tenant.businessId, row.amount, row.reference);
 
     await prisma.payment.create({
@@ -42,7 +58,9 @@ export async function POST(req: NextRequest) {
       matched++;
       const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
       if (invoice) {
-        const newPaid = invoice.amountPaid + row.amount;
+        const remaining = Math.max(0, invoice.total - invoice.amountPaid);
+        const applied = Math.min(row.amount, remaining);
+        const newPaid = invoice.amountPaid + applied;
         await prisma.invoice.update({
           where: { id: invoiceId },
           data: {
@@ -58,5 +76,5 @@ export async function POST(req: NextRequest) {
     results.push({ amount: row.amount, matched: !!invoiceId, reference: row.reference });
   }
 
-  return NextResponse.json({ total: rows.length, matched, unmatched, results });
+  return NextResponse.json({ total: rows.length, matched, unmatched, skipped, results });
 }

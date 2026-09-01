@@ -1,18 +1,14 @@
-import prisma from "@/lib/db";
-import { getTenant as getTenantFromSession } from "@/lib/auth/session";
+import { NextResponse } from "next/server";
+import { UnauthorizedError } from "@/lib/auth/errors";
+import { requireTenant } from "@/lib/auth/session";
 
-export interface TenantContext {
+export type TenantContext = {
   businessId: string;
   userId?: string;
-}
-
-/** @deprecated Use getTenant() from lib/auth/session */
-export async function getDefaultTenant(): Promise<TenantContext> {
-  return getTenantFromSession();
-}
+};
 
 export async function getTenant(): Promise<TenantContext> {
-  return getTenantFromSession();
+  return requireTenant();
 }
 
 export function assertTenantAccess(
@@ -20,6 +16,17 @@ export function assertTenantAccess(
   tenant: TenantContext
 ): void {
   if (resourceBusinessId !== tenant.businessId) {
-    throw new Error("Access denied: tenant isolation violation");
+    throw new UnauthorizedError("Access denied");
   }
+}
+
+export function handleApiError(err: unknown): NextResponse {
+  if (err instanceof UnauthorizedError) {
+    return NextResponse.json({ error: err.message }, { status: 401 });
+  }
+  console.error(err);
+  return NextResponse.json(
+    { error: err instanceof Error ? err.message : "Internal server error" },
+    { status: 500 }
+  );
 }

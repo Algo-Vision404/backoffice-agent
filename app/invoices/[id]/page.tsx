@@ -29,13 +29,17 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const [id, setId] = useState<string>("");
   const [sending, setSending] = useState(false);
   const [sendMessage, setSendMessage] = useState<string | null>(null);
+  const [viewUrl, setViewUrl] = useState<string>("");
 
   useEffect(() => {
     params.then((p) => {
       setId(p.id);
       fetch(`/api/invoices/${p.id}`)
         .then((r) => r.json())
-        .then((d) => setInvoice(d.invoice));
+        .then((d) => {
+          setInvoice(d.invoice);
+          setViewUrl(d.viewUrl ?? "");
+        });
     });
   }, [params]);
 
@@ -74,7 +78,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                 {sending ? "Sending..." : "Send via WhatsApp"}
               </Button>
             )}
-            <a href={`/api/invoices/${id}?format=html`} target="_blank" rel="noreferrer">
+            <a href={viewUrl || `#`} target="_blank" rel="noreferrer">
               <Button variant="outline">View / Print PDF</Button>
             </a>
             <Link href="/invoices">

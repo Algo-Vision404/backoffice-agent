@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { ToolResult } from "@/agents/types";
 import { sendWhatsAppMessage } from "@/integrations/whatsapp/client";
 import { generateInvoiceWhatsAppText } from "@/lib/pdf/invoice";
+import { invoiceViewUrl } from "@/lib/auth/invoice-access";
 
 const schema = z.object({
   invoice_number: z.string().optional(),
@@ -46,7 +47,7 @@ export async function sendInvoice(
   }
 
   const baseUrl = process.env.APP_URL ?? "http://localhost:3000";
-  const viewUrl = `${baseUrl}/api/invoices/${invoice.id}?format=html`;
+  const viewUrl = invoiceViewUrl(invoice.id, baseUrl);
 
   const message = generateInvoiceWhatsAppText(
     {
@@ -71,6 +72,13 @@ export async function sendInvoice(
     body: message,
   });
 
+  if (!result.success) {
+    return {
+      success: false,
+      error: result.error ?? "Failed to send WhatsApp message",
+    };
+  }
+
   if (invoice.status === "DRAFT") {
     await prisma.invoice.update({
       where: { id: invoice.id },
@@ -79,12 +87,11 @@ export async function sendInvoice(
   }
 
   return {
-    success: result.success,
+    success: true,
     data: { invoiceNumber: invoice.invoiceNumber, sentTo: invoice.customer.phone, stubbed: result.stubbed },
     message: result.stubbed
       ? `Invoice ${invoice.invoiceNumber} prepared for WhatsApp to ${invoice.customer.name} (stub mode — check server logs)`
       : `Invoice ${invoice.invoiceNumber} sent to ${invoice.customer.name} at ${invoice.customer.phone}`,
-    error: result.error,
   };
 }
 

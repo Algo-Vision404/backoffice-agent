@@ -6,7 +6,7 @@ WhatsApp-first AI back-office for small businesses in Ghana and Nigeria.
 
 | Module | Capabilities |
 |--------|-------------|
-| **Auth** | Phone/email login, session cookies, tenant isolation |
+| **Auth** | Password login (bcrypt), signed sessions, API lockdown, rate-limited login |
 | **Invoicing** | Create via AI, detail view, printable HTML/PDF, send via WhatsApp |
 | **Payments** | Record, bank CSV import, auto-match to invoices, unmatched queue |
 | **Tax** | Monthly VAT/WHT summary (GRA prep, report only) |
@@ -26,8 +26,28 @@ npm run dev
 ```
 
 1. Open http://localhost:3000/login
-2. Sign in with `+233241234567` (demo owner)
-3. Try the AI chat or WhatsApp test endpoint
+2. Sign in with `+233241234567` / `DemoPass123!`
+3. Try the AI chat (WhatsApp test endpoint requires login)
+
+## Security (production minimum)
+
+Before using real SME data, set these in production:
+
+| Requirement | Details |
+|-------------|---------|
+| `SESSION_SECRET` | Random string, 32+ characters |
+| `WHATSAPP_APP_SECRET` | Required in production — verifies webhook signatures |
+| `DEFAULT_BUSINESS_ID` | Required for WhatsApp webhook routing |
+| Password auth | All users must have `passwordHash` (set via seed or admin) |
+| API protection | All `/api/*` routes require valid signed session cookie |
+| Invoice links | Customer invoice URLs use signed tokens (90-day expiry) |
+
+PostgreSQL for production:
+```bash
+docker compose up -d
+# Set DATABASE_URL=postgresql://backoffice:backoffice@localhost:5432/backoffice?schema=public
+# Change provider in prisma/schema.prisma to postgresql, then: npm run db:migrate
+```
 
 ## Agent Tools (8)
 
@@ -46,17 +66,20 @@ npm run dev
 
 ```env
 WHATSAPP_VERIFY_TOKEN=your-token
+WHATSAPP_APP_SECRET=your-meta-app-secret
 WHATSAPP_ACCESS_TOKEN=your-meta-token
 WHATSAPP_PHONE_NUMBER_ID=your-phone-id
 APP_URL=https://your-domain.com
+DEFAULT_BUSINESS_ID=your-business-id-from-seed
 ```
 
 Webhook URL: `https://your-domain.com/api/whatsapp/webhook`
 
-Test locally:
+Test locally (requires login session cookie):
 ```bash
 curl -X POST http://localhost:3000/api/whatsapp/test \
   -H "Content-Type: application/json" \
+  -b "bo_session=YOUR_SESSION_COOKIE" \
   -d '{"message": "Show unpaid invoices this month"}'
 ```
 
@@ -76,7 +99,8 @@ Auto-matches by reference (INV-xxx) or exact amount.
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_URL` | SQLite or PostgreSQL connection |
-| `SESSION_SECRET` | Cookie signing secret |
+| `SESSION_SECRET` | Cookie + invoice link signing (32+ chars in prod) |
+| `WHATSAPP_APP_SECRET` | Meta webhook signature verification |
 | `DEFAULT_BUSINESS_ID` | From seed output |
 | `APP_URL` | Public URL for invoice links |
 | `AGENT_MODE` | `mock` or `live` |

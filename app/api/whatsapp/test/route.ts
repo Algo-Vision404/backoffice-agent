@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runAgent } from "@/agents/orchestrator";
-import { getTenant } from "@/lib/tenant";
+import { getTenant, handleApiError } from "@/lib/tenant";
 
 /**
  * POST /api/whatsapp/test
- * Simulate an incoming WhatsApp message for local testing.
+ * Simulate an incoming WhatsApp message — requires auth (session cookie).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -28,9 +28,6 @@ export async function POST(req: NextRequest) {
       note: "WhatsApp reply would be sent in production. Response shown here for testing.",
     });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Test failed" },
-      { status: 500 }
-    );
+    return handleApiError(err);
   }
 }

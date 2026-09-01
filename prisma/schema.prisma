@@ -86,12 +86,13 @@ model Business {
 }
 
 model User {
-  id         String   @id @default(cuid())
-  businessId String
-  email      String?
-  phone      String?
-  name       String
-  role       String   @default("owner") // owner | accountant | staff
+  id           String   @id @default(cuid())
+  businessId   String
+  email        String?
+  phone        String?
+  name         String
+  passwordHash String?
+  role         String   @default("owner") // owner | accountant | staff
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
